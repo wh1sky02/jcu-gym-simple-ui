@@ -40,9 +40,16 @@ export async function POST(request: NextRequest) {
       userId = body.userId
     }
 
+    console.log('Booking request data:', {
+      userId,
+      sessionId,
+      hasToken: !!token,
+      bodyData: body
+    })
+
     if (!userId || !sessionId) {
       return NextResponse.json(
-        { error: "User ID and Session ID are required" },
+        { error: "User ID and Session ID are required. Please ensure you are logged in." },
         { status: 400 }
       )
     }

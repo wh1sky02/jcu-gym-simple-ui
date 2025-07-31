@@ -310,13 +310,24 @@ class PostgreSQLAdapter implements DatabaseAdapter {
   }
 
   async createBooking(bookingData: any) {
-    const { user_id, session_id, status = 'confirmed', notes } = bookingData
+    const { user_id, session_id, userId, sessionId, status = 'confirmed', notes } = bookingData
+
+    // Handle both camelCase and snake_case property names
+    const userIdValue = userId || user_id
+    const sessionIdValue = sessionId || session_id
+
+    console.log('Creating booking with values:', {
+      userIdValue,
+      sessionIdValue,
+      status,
+      notes
+    })
 
     const result = await this.query(
       `INSERT INTO bookings (user_id, session_id, status, notes)
        VALUES ($1, $2, $3, $4)
        RETURNING *`,
-      [user_id, session_id, status, notes]
+      [userIdValue, sessionIdValue, status, notes]
     )
     return result.rows[0]
   }
