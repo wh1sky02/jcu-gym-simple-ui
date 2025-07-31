@@ -221,15 +221,31 @@ class PostgreSQLAdapter implements DatabaseAdapter {
 
   async createSession(sessionData: any) {
     const {
-      date, start_time, end_time, capacity, type, instructor, description, difficulty, price
+      date, startTime, endTime, start_time, end_time, capacity, type, instructor, description, difficulty, price
     } = sessionData
+
+    // Handle both camelCase and snake_case property names
+    const startTimeValue = startTime || start_time
+    const endTimeValue = endTime || end_time
+
+    console.log('Creating session with values:', {
+      date,
+      startTimeValue,
+      endTimeValue,
+      capacity,
+      type,
+      instructor,
+      description,
+      difficulty,
+      price
+    })
 
     const result = await this.query(
       `INSERT INTO gym_sessions (
         date, start_time, end_time, capacity, type, instructor, description, difficulty, price
       ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       RETURNING *`,
-      [date, start_time, end_time, capacity, type, instructor, description, difficulty, price]
+      [date, startTimeValue, endTimeValue, capacity, type, instructor, description, difficulty, price]
     )
     return result.rows[0]
   }

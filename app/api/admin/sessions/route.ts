@@ -38,13 +38,25 @@ export async function POST(request: NextRequest) {
   try {
     const { action, sessionData } = await request.json()
     
+    // Log the received data for debugging
+    console.log('Received session data:', JSON.stringify(sessionData, null, 2))
+    
     const db = getDatabaseAdapter()
     
     if (action === "create") {
       // Create new session
       if (!sessionData.date || !sessionData.startTime || !sessionData.endTime || !sessionData.capacity) {
         return NextResponse.json(
-          { error: "Missing required session data" },
+          { error: "Missing required session data: date, startTime, endTime, and capacity are required" },
+          { status: 400 }
+        )
+      }
+
+      // Validate time format (should be HH:MM or HH:MM:SS)
+      const timeRegex = /^([0-1]?[0-9]|2[0-3]):[0-5][0-9](:[0-5][0-9])?$/
+      if (!timeRegex.test(sessionData.startTime) || !timeRegex.test(sessionData.endTime)) {
+        return NextResponse.json(
+          { error: "Invalid time format. Use HH:MM format (e.g., 09:00, 14:30)" },
           { status: 400 }
         )
       }
