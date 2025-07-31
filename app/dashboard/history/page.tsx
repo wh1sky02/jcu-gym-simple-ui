@@ -41,6 +41,7 @@ export default function BookingHistoryPage() {
       })
       if (response.ok) {
         const data = await response.json()
+        console.log('Fetched bookings:', data) // Debug log
         setBookings(
           data.sort(
             (a: Booking, b: Booking) => new Date(b.session.date).getTime() - new Date(a.session.date).getTime(),
@@ -91,9 +92,15 @@ export default function BookingHistoryPage() {
       // Extract just the date part (YYYY-MM-DD) for comparison
       const sessionDateStr = booking.session.date.split('T')[0]
       const todayStr = new Date().toISOString().split('T')[0]
-      return sessionDateStr < todayStr
+      const isPast = sessionDateStr < todayStr
+      const isCancelled = booking.status === "cancelled"
+      console.log(`Booking ${booking.id}: sessionDate=${sessionDateStr}, today=${todayStr}, isPast=${isPast}, status=${booking.status}`) // Debug log
+      // Show past sessions (any status) OR cancelled future sessions
+      return isPast || isCancelled
     }
   )
+
+  console.log('Past bookings:', pastBookings) // Debug log
 
   // Show loading screen while auth is initializing
   if (authLoading) {
@@ -221,9 +228,9 @@ export default function BookingHistoryPage() {
           <CardHeader className="bg-gradient-to-r from-gray-600 to-gray-700 text-white rounded-t-lg">
             <CardTitle className="flex items-center">
               <Clock className="h-6 w-6 mr-3" />
-              Past Sessions
+              Past & Cancelled Sessions
             </CardTitle>
-            <CardDescription className="text-gray-100 font-medium">Your booking history and attendance record</CardDescription>
+            <CardDescription className="text-gray-100 font-medium">Your booking history, completed sessions, and cancelled bookings</CardDescription>
           </CardHeader>
           <CardContent className="p-6">
             {pastBookings.length === 0 ? (
