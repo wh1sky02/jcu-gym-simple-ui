@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
 import { useAuth } from "@/components/auth-provider"
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
@@ -8,7 +8,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Alert, AlertDescription } from "@/components/ui/alert"
-import { GraduationCap, Mail, Lock, Eye, EyeOff, LogIn } from "lucide-react"
+import { GraduationCap, Mail, Lock, Eye, EyeOff, LogIn, Shield } from "lucide-react"
 import Link from "next/link"
 
 export default function LoginPage() {
@@ -20,6 +20,12 @@ export default function LoginPage() {
   const { login } = useAuth()
   const router = useRouter()
 
+  useEffect(() => {
+    // Clear any admin session data when accessing user login
+    localStorage.removeItem("admin-auth-token")
+    localStorage.removeItem("admin-user-data")
+  }, [])
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setIsLoading(true)
@@ -29,15 +35,15 @@ export default function LoginPage() {
       const result = await login(email, password)
       
       if (result.success) {
-        // Successful login - redirect based on user role
-        if (result.user?.role === 'admin') {
-          router.push("/admin/dashboard")
-        } else {
-          router.push("/dashboard")
-        }
+        // Successful login - redirect to user dashboard
+        router.push("/dashboard")
       } else {
         // Handle different error statuses
         switch (result.status) {
+          case 'invalid_credentials':
+            setError(result.message || "Invalid email or password")
+            break
+            
           case 'pending':
             // Redirect to pending approval page with user info
             const userInfoQuery = encodeURIComponent(JSON.stringify(result.userInfo))

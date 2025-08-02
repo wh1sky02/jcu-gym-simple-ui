@@ -28,7 +28,7 @@ export interface DatabaseAdapter {
   updateUser(userId: string, userData: any): Promise<any>
   getAllUsers(): Promise<any[]>
   getPendingUsers(): Promise<any[]>
-  approveUser(userId: string): Promise<any>
+  approveUser(userId: string, action?: string): Promise<any>
   
   // Session operations
   getSessionsByDate(date: string): Promise<any[]>
@@ -59,6 +59,9 @@ export interface DatabaseAdapter {
   // Statistics operations
   getBookingStats(): Promise<any>
   getUserStats(userId: string): Promise<any>
+  
+  // Admin operations
+  factoryReset(adminUserId: string): Promise<any>
   
   // General operations
   query(text: string, params?: any[]): Promise<any>
@@ -171,12 +174,64 @@ class PostgreSQLAdapter implements DatabaseAdapter {
     return result.rows
   }
 
-  async approveUser(userId: string) {
-    const result = await this.query(
-      "UPDATE users SET status = 'approved', approval_date = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *",
-      [userId]
-    )
-    return result.rows[0]
+  async approveUser(userId: string, action: string = 'approve') {
+    const client = await this.pool.connect()
+    
+    try {
+      await client.query('BEGIN')
+      
+      let result
+      
+      if (action === 'approve') {
+        // Update user status to approved
+        result = await client.query(
+          "UPDATE users SET status = 'approved', approval_date = NOW(), updated_at = NOW() WHERE id = $1 RETURNING *",
+          [userId]
+        )
+        
+        // Update billing transactions from pending to completed
+        await client.query(`
+          UPDATE billing_transactions 
+          SET status = 'completed', completed_at = NOW() 
+          WHERE user_id = $1 AND status = 'pending'
+        `, [userId])
+        
+        // Update user payment status to paid
+        await client.query(`
+          UPDATE users 
+          SET payment_status = 'paid' 
+          WHERE id = $1
+        `, [userId])
+        
+        console.log(`✓ User ${userId} approved and payment transactions completed`)
+        
+      } else if (action === 'reject') {
+        // Update user status to suspended for rejected users
+        result = await client.query(
+          "UPDATE users SET status = 'suspended', updated_at = NOW() WHERE id = $1 RETURNING *",
+          [userId]
+        )
+        
+        // Update billing transactions from pending to cancelled
+        await client.query(`
+          UPDATE billing_transactions 
+          SET status = 'cancelled' 
+          WHERE user_id = $1 AND status = 'pending'
+        `, [userId])
+        
+        console.log(`✓ User ${userId} rejected and payment transactions cancelled`)
+      }
+      
+      await client.query('COMMIT')
+      return result?.rows[0]
+      
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('Error in approveUser transaction:', error)
+      throw error
+    } finally {
+      client.release()
+    }
   }
 
   // Session operations
@@ -263,11 +318,67 @@ class PostgreSQLAdapter implements DatabaseAdapter {
   }
 
   async deleteSession(sessionId: string) {
-    const result = await this.query(
-      'DELETE FROM gym_sessions WHERE id = $1 RETURNING *',
-      [sessionId]
-    )
-    return result.rows[0]
+    const client = await this.pool.connect()
+    
+    try {
+      await client.query('BEGIN')
+      
+      // First, get session details for logging
+      const sessionResult = await client.query(
+        'SELECT date, start_time, end_time, type FROM gym_sessions WHERE id = $1',
+        [sessionId]
+      )
+      
+      const session = sessionResult.rows[0]
+      if (!session) {
+        throw new Error(`Session with ID ${sessionId} not found`)
+      }
+      
+      // Get count of bookings that will be cancelled
+      const bookingCountResult = await client.query(
+        'SELECT COUNT(*) as count FROM bookings WHERE session_id = $1 AND status IN ($2, $3)',
+        [sessionId, 'confirmed', 'pending']
+      )
+      
+      const bookingCount = parseInt(bookingCountResult.rows[0].count)
+      
+      // Cancel all active bookings for this session
+      if (bookingCount > 0) {
+        await client.query(`
+          UPDATE bookings 
+          SET status = 'cancelled', updated_at = NOW() 
+          WHERE session_id = $1 AND status IN ('confirmed', 'pending')
+        `, [sessionId])
+        
+        console.log(`✓ Cancelled ${bookingCount} bookings for session on ${session.date} ${session.start_time}-${session.end_time}`)
+      }
+      
+      // Delete the session
+      const result = await client.query(
+        'DELETE FROM gym_sessions WHERE id = $1 RETURNING *',
+        [sessionId]
+      )
+      
+      if (result.rows.length === 0) {
+        throw new Error(`Failed to delete session with ID ${sessionId}`)
+      }
+      
+      await client.query('COMMIT')
+      
+      console.log(`✓ Deleted session on ${session.date} ${session.start_time}-${session.end_time} (${session.type})`)
+      if (bookingCount > 0) {
+        console.log(`✓ Total ${bookingCount} bookings were automatically cancelled`)
+      }
+      
+      return result.rows[0]
+      
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('Error in deleteSession transaction:', error)
+      throw error
+    } finally {
+      client.release()
+    }
   }
 
   // Booking operations
@@ -462,6 +573,138 @@ class PostgreSQLAdapter implements DatabaseAdapter {
     `, [userId])
     
     return result.rows[0]
+  }
+
+  // Admin operations
+  async factoryReset(adminUserId: string) {
+    const client = await this.pool.connect()
+    
+    try {
+      await client.query('BEGIN')
+      
+      console.log('🚨 Starting factory reset transaction...')
+      
+      // Helper function to safely check if table exists and get count
+      const getTableCount = async (tableName: string, whereClause?: string, params?: any[]) => {
+        try {
+          let query = `SELECT COUNT(*) FROM ${tableName}`
+          if (whereClause) {
+            query += ` WHERE ${whereClause}`
+          }
+          const result = await client.query(query, params)
+          return parseInt(result.rows[0].count)
+        } catch (error) {
+          console.log(`Table "${tableName}" does not exist, skipping count`)
+          return 0
+        }
+      }
+      
+      // Helper function to safely delete from table
+      const safeDelete = async (tableName: string, whereClause?: string, params?: any[]) => {
+        try {
+          let query = `DELETE FROM ${tableName}`
+          if (whereClause) {
+            query += ` WHERE ${whereClause}`
+          }
+          await client.query(query, params)
+          return true
+        } catch (error) {
+          console.log(`Table "${tableName}" does not exist, skipping deletion`)
+          return false
+        }
+      }
+      
+      // Get counts before deletion for reporting (safely)
+      const counts = {
+        bookings: await getTableCount('bookings'),
+        sessions: await getTableCount('gym_sessions'),
+        transactions: await getTableCount('billing_transactions'),
+        notifications: await getTableCount('notifications'),
+        users: await getTableCount('users', 'role != $1', ['admin'])
+      }
+      
+      console.log('Deletion counts:', counts)
+      
+      // Delete in correct order to respect foreign key constraints (safely)
+      
+      // 1. Delete bookings first (they reference sessions and users)
+      const bookingsDeleted = await safeDelete('bookings')
+      if (bookingsDeleted) {
+        console.log(`✓ Deleted ${counts.bookings} bookings`)
+      }
+      
+      // 2. Delete sessions (no foreign key dependencies from other tables)
+      const sessionsDeleted = await safeDelete('gym_sessions')
+      if (sessionsDeleted) {
+        console.log(`✓ Deleted ${counts.sessions} sessions`)
+      }
+      
+      // 3. Delete billing transactions (they reference users)
+      const transactionsDeleted = await safeDelete('billing_transactions')
+      if (transactionsDeleted) {
+        console.log(`✓ Deleted ${counts.transactions} billing transactions`)
+      }
+      
+      // 4. Delete notifications (they reference users)
+      const notificationsDeleted = await safeDelete('notifications')
+      if (notificationsDeleted) {
+        console.log(`✓ Deleted ${counts.notifications} notifications`)
+      }
+      
+      // 5. Delete user achievements (they reference users)
+      const achievementsDeleted = await safeDelete('user_achievements')
+      if (achievementsDeleted) {
+        console.log(`✓ Deleted user achievements`)
+      }
+      
+      // 6. Delete all non-admin users (last, as they're referenced by other tables)
+      const usersDeleted = await safeDelete('users', 'role != $1', ['admin'])
+      if (usersDeleted) {
+        console.log(`✓ Deleted ${counts.users} non-admin users`)
+      }
+      
+      // 6. Reset sequences (optional, for clean ID numbering)
+      try {
+        // Check if sequences exist before resetting them
+        const sequences = [
+          { table: 'gym_sessions', column: 'id' },
+          { table: 'bookings', column: 'id' },
+          { table: 'billing_transactions', column: 'id' },
+          { table: 'notifications', column: 'id' },
+          { table: 'user_achievements', column: 'id' }
+        ]
+        
+        for (const seq of sequences) {
+          try {
+            // Check if table and sequence exist
+            const seqCheck = await client.query(`
+              SELECT pg_get_serial_sequence($1, $2) as seq_name
+            `, [seq.table, seq.column])
+            
+            if (seqCheck.rows[0]?.seq_name) {
+              await client.query(`SELECT setval($1, 1, false)`, [seqCheck.rows[0].seq_name])
+              console.log(`✓ Reset sequence for ${seq.table}.${seq.column}`)
+            }
+          } catch (seqError) {
+            console.log(`Note: Could not reset sequence for ${seq.table}.${seq.column}`)
+          }
+        }
+      } catch (seqError) {
+        console.log('Note: Could not reset some sequences:', seqError instanceof Error ? seqError.message : seqError)
+      }
+      
+      await client.query('COMMIT')
+      console.log('✅ Factory reset transaction completed successfully')
+      
+      return counts
+      
+    } catch (error) {
+      await client.query('ROLLBACK')
+      console.error('❌ Factory reset failed, transaction rolled back:', error)
+      throw error
+    } finally {
+      client.release()
+    }
   }
 }
 

@@ -1,8 +1,8 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/components/auth-provider"
+import { useAdminAuth } from "@/components/admin-auth-provider"  
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -17,8 +17,37 @@ export default function AdminLoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState("")
-  const { login } = useAuth()
+  const { login, user, isLoading: authLoading, clearUserSession } = useAdminAuth()
   const router = useRouter()
+
+  useEffect(() => {
+    // Clear any existing user session when accessing admin login
+    clearUserSession()
+    
+    // If already logged in as admin, redirect to admin dashboard
+    // Add a small delay to prevent rapid redirects
+    if (user && !authLoading) {
+      const timer = setTimeout(() => {
+        router.push("/admin/dashboard")
+      }, 100)
+      return () => clearTimeout(timer)
+    }
+  }, [user, authLoading, router, clearUserSession])
+
+  // Show loading if auth is still being checked
+  if (authLoading) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-slate-900 via-slate-800 to-slate-700 flex items-center justify-center p-4">
+        <div className="text-center">
+          <div className="inline-flex items-center justify-center w-16 h-16 bg-gradient-to-br from-red-600 to-red-700 rounded-2xl mb-6 shadow-lg">
+            <Shield className="h-8 w-8 text-white" />
+          </div>
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-white mx-auto mb-4"></div>
+          <p className="text-white font-medium">Checking authentication...</p>
+        </div>
+      </div>
+    )
+  }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -26,28 +55,12 @@ export default function AdminLoginPage() {
     setError("")
 
     try {
-      const success = await login(email, password)
+      const result = await login(email, password)
       
-      if (success) {
-        // Check if user is actually an admin
-        const userStr = localStorage.getItem('user-data')
-        
-        if (userStr) {
-          const user = JSON.parse(userStr)
-          
-          if (user.role === 'admin') {
-            router.push("/admin")
-          } else {
-            setError("Access denied. Admin credentials required.")
-            // Clear non-admin user
-            localStorage.removeItem('user-data')
-            localStorage.removeItem('auth-token')
-          }
-        } else {
-          setError("Authentication failed")
-        }
+      if (result.success) {
+        router.push("/admin/dashboard")
       } else {
-        setError("Invalid admin credentials")
+        setError(result.message || "Invalid admin credentials")
       }
     } catch (err) {
       console.error('Login error:', err)

@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Revenue Test</title>
+</head>
+<body>
+    <h1>Admin Dashboard Revenue Test</h1>
+    <button onclick="testRevenue()">Test Revenue Calculation</button>
+    <div id="results"></div>
+    
+    <script>
+        async function testRevenue() {
+            const resultsDiv = document.getElementById('results');
+            resultsDiv.innerHTML = '<p>Testing...</p>';
+            
+            try {
+                const response = await fetch('/api/admin/billing');
+                const billingData = await response.json();
+                
+                console.log('Raw billing data:', billingData);
+                
+                const transactions = Array.isArray(billingData) ? billingData : [];
+                console.log('Transactions array:', transactions);
+                
+                const completedTransactions = transactions.filter(t => t.status === 'completed');
+                console.log('Completed transactions:', completedTransactions);
+                
+                const totalRevenue = completedTransactions.reduce((sum, t) => {
+                    const amount = parseFloat(t.amount) || 0;
+                    console.log(`Adding transaction: ${t.description} - S$${amount}`);
+                    return sum + amount;
+                }, 0);
+                
+                console.log('Final calculated total revenue:', totalRevenue);
+                
+                resultsDiv.innerHTML = `
+                    <h2>Results:</h2>
+                    <p>Total transactions: ${transactions.length}</p>
+                    <p>Completed transactions: ${completedTransactions.length}</p>
+                    <p>Total revenue: S$${totalRevenue.toFixed(2)}</p>
+                    <h3>Transaction details:</h3>
+                    <ul>
+                        ${completedTransactions.map(t => 
+                            `<li>${t.description}: S$${t.amount} (${t.status})</li>`
+                        ).join('')}
+                    </ul>
+                `;
+            } catch (error) {
+                console.error('Error:', error);
+                resultsDiv.innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>

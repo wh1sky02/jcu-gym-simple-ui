@@ -26,6 +26,32 @@ async function createSampleBillingData(db: any) {
         status: 'completed',
         completed_at: new Date().toISOString(),
         created_at: new Date().toISOString()
+      },
+      {
+        id: randomUUID(),
+        user_id: users[0].id,
+        transaction_type: 'payment',
+        amount: 150.00,
+        currency: 'SGD',
+        payment_method: 'bank_transfer',
+        payment_reference: 'TXN_' + randomUUID().slice(0, 8).toUpperCase(),
+        description: '1-trimester gym membership',
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        created_at: new Date().toISOString()
+      },
+      {
+        id: randomUUID(),
+        user_id: users[0].id,
+        transaction_type: 'payment',
+        amount: 700.00,
+        currency: 'SGD',
+        payment_method: 'credit_card',
+        payment_reference: 'TXN_' + randomUUID().slice(0, 8).toUpperCase(),
+        description: '6-trimester gym membership',
+        status: 'completed',
+        completed_at: new Date().toISOString(),
+        created_at: new Date().toISOString()
       }
     ]
 
@@ -145,7 +171,14 @@ export async function GET(request: NextRequest) {
       }
     }))
 
-    return NextResponse.json(transactions)
+    const response = NextResponse.json(transactions)
+    
+    // Add cache-busting headers
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate')
+    response.headers.set('Pragma', 'no-cache')
+    response.headers.set('Expires', '0')
+    
+    return response
   } catch (error) {
     console.error("Error fetching billing data:", error)
     return NextResponse.json(

@@ -8,6 +8,8 @@ const JWT_SECRET = process.env.JWT_SECRET || "jcu-gym-secret-key-change-in-produ
 export async function POST(request: NextRequest) {
   try {
     const { email, password } = await request.json()
+    const isAdminLogin = request.headers.get('X-Admin-Login') === 'true'
+    const isUserLogin = request.headers.get('X-User-Login') === 'true'
 
     if (!email || !password) {
       return NextResponse.json(
@@ -46,6 +48,22 @@ export async function POST(request: NextRequest) {
 
     const userStatus = (user as any).status
     const userRole = (user as any).role
+
+    // If this is an admin login attempt, verify the user is actually an admin
+    if (isAdminLogin && userRole !== 'admin') {
+      return NextResponse.json(
+        { error: "Access denied. Admin credentials required." },
+        { status: 403 }
+      )
+    }
+
+    // If this is a user login attempt, reject admin users with generic error
+    if (isUserLogin && userRole === 'admin') {
+      return NextResponse.json(
+        { error: "Invalid email or password" },
+        { status: 401 }
+      )
+    }
 
     // Handle different user statuses
     if (userStatus === 'pending') {

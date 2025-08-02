@@ -29,7 +29,7 @@ This will create the `.env.local` file for you.
 ### 5. Setup Database Schema
 Run this command to create the database tables:
 ```bash
-psql "your_copied_neon_database_url"
+node scripts/setup-schema.js
 ```
 
 ### 6. Start Application

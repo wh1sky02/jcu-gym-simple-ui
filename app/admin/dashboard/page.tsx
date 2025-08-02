@@ -1,6 +1,6 @@
 "use client"
 
-import { useAuth } from "@/components/auth-provider"
+import { useAdminAuth } from "@/components/admin-auth-provider"
 import { useRouter } from "next/navigation"
 import { useEffect, useState } from "react"
 import { 
@@ -93,7 +93,7 @@ interface BillingTransaction {
 }
 
 export default function AdminDashboard() {
-  const { user, logout, isLoading: authLoading } = useAuth()
+  const { user, logout, isLoading: authLoading } = useAdminAuth()
   const router = useRouter()
   const [loading, setLoading] = useState(true)
   const [activeTab, setActiveTab] = useState("overview")
@@ -178,6 +178,11 @@ export default function AdminDashboard() {
   const [notificationHistory, setNotificationHistory] = useState<any[]>([])
   const [notificationLoading, setNotificationLoading] = useState(false)
   const [settingsLoading, setSettingsLoading] = useState(false)
+
+  // Factory reset state
+  const [showFactoryResetModal, setShowFactoryResetModal] = useState(false)
+  const [factoryResetLoading, setFactoryResetLoading] = useState(false)
+  const [factoryResetConfirmation, setFactoryResetConfirmation] = useState('')
 
   // Helper functions for gym schedule validation
   const isValidGymDay = (date: string): boolean => {
@@ -294,7 +299,14 @@ export default function AdminDashboard() {
       }
 
       // Fetch billing transactions
-      const billingResponse = await fetch('/api/admin/billing')
+      const billingResponse = await fetch('/api/admin/billing?' + new URLSearchParams({
+        _t: Date.now().toString()
+      }), {
+        cache: 'no-store',
+        headers: {
+          'Cache-Control': 'no-cache'
+        }
+      })
       if (billingResponse.ok) {
         const billingData = await billingResponse.json()
         console.log('Billing data received:', billingData)
@@ -302,9 +314,17 @@ export default function AdminDashboard() {
         setBillingTransactions(transactions)
         
         // Calculate total revenue from completed transactions
-        const totalRevenue = transactions
-          .filter((t: any) => t.status === 'completed')
-          .reduce((sum: number, t: any) => sum + (parseFloat(t.amount) || 0), 0)
+        const completedTransactions = transactions.filter((t: any) => t.status === 'completed')
+        console.log('Completed transactions:', completedTransactions)
+        
+        const totalRevenue = completedTransactions
+          .reduce((sum: number, t: any) => {
+            const amount = parseFloat(t.amount) || 0
+            console.log(`Adding transaction: ${t.description} - S$${amount}`)
+            return sum + amount
+          }, 0)
+        
+        console.log('Calculated total revenue:', totalRevenue)
         
         setStats(prev => ({
           ...prev,
@@ -392,13 +412,16 @@ export default function AdminDashboard() {
   }
 
   useEffect(() => {
+    console.log('AdminDashboard: useEffect - authLoading:', authLoading, 'user:', user?.email, 'user role:', user?.role)
     // Don't redirect while auth is still loading
     if (authLoading) return
     
     if (!user || user.role !== 'admin') {
+      console.log('AdminDashboard: Redirecting to /admin/login - user:', user?.email, 'role:', user?.role)
       router.push('/admin/login')
       return
     }
+    console.log('AdminDashboard: User authenticated, calling fetchData')
     fetchData()
   }, [user, router, authLoading])
 
@@ -580,6 +603,9 @@ export default function AdminDashboard() {
       if (response.ok) {
         setUsers(users.map(u => u.id === userId ? {...u, status: 'approved', approval_date: new Date().toISOString()} : u))
         alert('User approved successfully')
+        
+        // Refresh billing data to update total revenue with completed transactions
+        await fetchData()
       } else {
         alert('Failed to approve user')
       }
@@ -607,6 +633,9 @@ export default function AdminDashboard() {
       if (response.ok) {
         setUsers(users.map(u => u.id === userId ? {...u, status: 'suspended'} : u))
         alert('User declined successfully')
+        
+        // Refresh billing data to update cancelled transactions
+        await fetchData()
       } else {
         alert('Failed to decline user')
       }
@@ -754,6 +783,8 @@ export default function AdminDashboard() {
       if (response.ok) {
         alert('Session deleted successfully')
         await fetchSessions(selectedDate)
+        // Refresh bookings data since we cancelled bookings
+        await fetchBookings()
         // Refresh weekly overview
         await loadWeeklyOverview()
       } else {
@@ -1022,6 +1053,66 @@ export default function AdminDashboard() {
   const loadWeeklyOverview = async () => {
     const weekData = await fetchWeekOverview()
     setWeeklyData(weekData)
+  }
+
+  const handleFactoryReset = async () => {
+    if (factoryResetConfirmation !== 'FACTORY RESET') {
+      alert('Please type "FACTORY RESET" to confirm this action')
+      return
+    }
+
+    if (!confirm('⚠️ FINAL WARNING: This will permanently delete ALL data (users, sessions, bookings, transactions) except admin credentials. This action CANNOT be undone. Are you absolutely sure?')) {
+      return
+    }
+
+    setFactoryResetLoading(true)
+    
+    try {
+      const response = await fetch('/api/admin/factory-reset', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${localStorage.getItem('admin-auth-token')}`
+        },
+        body: JSON.stringify({
+          confirmation: factoryResetConfirmation,
+          adminUserId: user?.id
+        })
+      })
+
+      const result = await response.json()
+
+      if (response.ok) {
+        alert('✅ Factory reset completed successfully! All data has been cleared except admin credentials.')
+        setShowFactoryResetModal(false)
+        setFactoryResetConfirmation('')
+        
+        // Refresh all data to show empty state
+        await fetchData()
+        
+        // Reset all local state
+        setUsers([])
+        setSessions([])
+        setBookings([])
+        setBillingTransactions([])
+        setNotificationHistory([])
+        setWeeklyData([])
+        setStats({
+          totalUsers: 0,
+          activeUsers: 0,
+          pendingUsers: 0,
+          todayBookings: 0,
+          totalRevenue: 0
+        })
+      } else {
+        alert(`❌ Factory reset failed: ${result.error || 'Unknown error occurred'}`)
+      }
+    } catch (error) {
+      console.error('Factory reset error:', error)
+      alert('❌ An error occurred during factory reset. Please try again.')
+    } finally {
+      setFactoryResetLoading(false)
+    }
   }
 
   return (
@@ -2039,9 +2130,132 @@ export default function AdminDashboard() {
                 </div>
               </CardContent>
             </Card>
+            
+            {/* Danger Zone - Factory Reset */}
+            <Card className="bg-white shadow-md border-l-4 border-l-red-500">
+              <CardHeader>
+                <CardTitle className="text-red-900 flex items-center">
+                  <div className="w-12 h-12 bg-red-100 rounded-lg flex items-center justify-center mr-3">
+                    <AlertCircle className="h-6 w-6 text-red-600" />
+                  </div>
+                  Danger Zone
+                </CardTitle>
+                <CardDescription className="text-red-600">
+                  Irreversible actions that will permanently delete data
+                </CardDescription>
+              </CardHeader>
+              <CardContent className="space-y-4">
+                <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                  <div className="flex items-start space-x-3">
+                    <AlertCircle className="h-5 w-5 text-red-600 mt-0.5 flex-shrink-0" />
+                    <div className="flex-1">
+                      <h4 className="font-semibold text-red-900 mb-2">Factory Reset</h4>
+                      <p className="text-sm text-red-700 mb-3">
+                        This will permanently delete ALL data from the system including:
+                      </p>
+                      <ul className="text-sm text-red-700 list-disc list-inside space-y-1 mb-4">
+                        <li>All user accounts and registrations</li>
+                        <li>All gym sessions and bookings</li>
+                        <li>All billing transactions and payment records</li>
+                        <li>All notifications and system logs</li>
+                      </ul>
+                      <div className="bg-red-100 border border-red-300 rounded p-3 mb-4">
+                        <p className="text-sm text-red-800 font-medium">
+                          ⚠️ Only admin login credentials will be preserved
+                        </p>
+                      </div>
+                      <Button
+                        onClick={() => setShowFactoryResetModal(true)}
+                        className="bg-red-600 hover:bg-red-700 text-white"
+                        disabled={factoryResetLoading}
+                      >
+                        <XCircle className="h-4 w-4 mr-2" />
+                        {factoryResetLoading ? 'Processing...' : 'Factory Reset'}
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </CardContent>
+            </Card>
           </TabsContent>
         </Tabs>
       </div>
+
+      {/* Factory Reset Modal */}
+      {showFactoryResetModal && (
+        <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+          <div className="bg-white p-6 rounded-lg w-full max-w-md border-4 border-red-500 shadow-2xl">
+            <div className="text-center mb-6">
+              <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
+                <AlertCircle className="h-8 w-8 text-red-600" />
+              </div>
+              <h3 className="text-xl font-bold text-red-900 mb-2">⚠️ FACTORY RESET</h3>
+              <p className="text-sm text-red-700">
+                This action will permanently delete ALL data except admin credentials
+              </p>
+            </div>
+            
+            <div className="bg-red-50 border border-red-200 rounded-lg p-4 mb-6">
+              <h4 className="font-semibold text-red-900 mb-2">Data to be deleted:</h4>
+              <ul className="text-sm text-red-700 space-y-1">
+                <li>• {stats.totalUsers} user accounts</li>
+                <li>• {sessions.length} gym sessions</li>
+                <li>• {bookings.length} bookings</li>
+                <li>• {billingTransactions.length} transactions</li>
+                <li>• All notifications and logs</li>
+              </ul>
+              <p className="text-xs text-red-600 mt-3 font-medium">
+                This action is IRREVERSIBLE and cannot be undone!
+              </p>
+            </div>
+
+            <div className="mb-6">
+              <label className="block text-sm font-medium text-red-900 mb-2">
+                Type "FACTORY RESET" to confirm:
+              </label>
+              <input
+                type="text"
+                value={factoryResetConfirmation}
+                onChange={(e) => setFactoryResetConfirmation(e.target.value)}
+                placeholder="Type exactly: FACTORY RESET"
+                className="w-full p-3 border-2 border-red-300 rounded-lg focus:border-red-500 focus:ring-2 focus:ring-red-200 text-gray-900"
+                disabled={factoryResetLoading}
+              />
+            </div>
+
+            <div className="flex space-x-3">
+              <Button
+                onClick={() => {
+                  setShowFactoryResetModal(false)
+                  setFactoryResetConfirmation('')
+                }}
+                variant="outline"
+                className="flex-1 border-gray-300 text-gray-700 hover:bg-gray-50"
+                disabled={factoryResetLoading}
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleFactoryReset}
+                className="flex-1 bg-red-600 hover:bg-red-700 text-white"
+                disabled={factoryResetLoading || factoryResetConfirmation !== 'FACTORY RESET'}
+              >
+                {factoryResetLoading ? (
+                  <div className="flex items-center">
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white mr-2"></div>
+                    Resetting...
+                  </div>
+                ) : (
+                  <>
+                    <XCircle className="h-4 w-4 mr-2" />
+                    Delete All Data
+                  </>
+                )}
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Create Session Modal */}
       {showCreateSessionModal && (

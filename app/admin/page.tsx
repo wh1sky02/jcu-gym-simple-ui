@@ -2,10 +2,10 @@
 
 import { useEffect } from "react"
 import { useRouter } from "next/navigation"
-import { useAuth } from "@/components/auth-provider"
+import { useAdminAuth } from "@/components/admin-auth-provider"
 
 export default function AdminPage() {
-  const { user, isLoading: authLoading } = useAuth()
+  const { user, isLoading: authLoading } = useAdminAuth()
   const router = useRouter()
 
   useEffect(() => {
@@ -13,17 +13,24 @@ export default function AdminPage() {
     if (authLoading) return
     
     if (!user) {
-      router.push('/admin/login')
-      return
+      const timer = setTimeout(() => {
+        router.push('/admin/login')
+      }, 100)
+      return () => clearTimeout(timer)
     }
     
     if (user.role !== 'admin') {
-      router.push('/auth/login')
-      return
+      const timer = setTimeout(() => {
+        router.push('/admin/login')
+      }, 100)
+      return () => clearTimeout(timer)
     }
 
     // Redirect to the new admin dashboard
-    router.push('/admin/dashboard')
+    const timer = setTimeout(() => {
+      router.push('/admin/dashboard')
+    }, 100)
+    return () => clearTimeout(timer)
   }, [user, router, authLoading])
 
   // Show loading screen while auth is initializing

@@ -45,11 +45,30 @@ export default function NotificationsDropdown({ userId }: NotificationsDropdownP
     }
   }
 
+  // Fetch notifications on component mount and when userId changes
+  useEffect(() => {
+    if (userId) {
+      fetchNotifications()
+    }
+  }, [userId])
+
+  // Refresh notifications when dropdown opens
   useEffect(() => {
     if (isOpen && userId) {
       fetchNotifications()
     }
   }, [isOpen, userId])
+
+  // Set up periodic refresh every 30 seconds to keep notification count updated
+  useEffect(() => {
+    if (!userId) return
+
+    const interval = setInterval(() => {
+      fetchNotifications()
+    }, 30000) // 30 seconds
+
+    return () => clearInterval(interval)
+  }, [userId])
 
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {

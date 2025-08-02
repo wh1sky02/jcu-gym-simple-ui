@@ -4,6 +4,7 @@ import { Inter } from "next/font/google"
 import "../styles/globals.css"
 import { AuthProvider } from "@/components/auth-provider"
 import { Toaster } from "@/components/ui/toaster"
+import { SessionConflictHandler } from "@/components/session-conflict-handler"
 
 const inter = Inter({ subsets: ["latin"] })
 
@@ -21,6 +22,7 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body className={inter.className}>
+        <SessionConflictHandler />
         <AuthProvider>
           {children}
           <Toaster />

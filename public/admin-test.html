@@ -1,0 +1,108 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Login Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 40px; }
+        input, button { padding: 10px; margin: 5px; display: block; width: 300px; }
+        .result { margin-top: 20px; padding: 10px; border: 1px solid #ccc; background: #f9f9f9; }
+    </style>
+</head>
+<body>
+    <h1>Admin Login Debug Test</h1>
+    
+    <form id="loginForm">
+        <input type="email" id="email" placeholder="Email" value="admin@my.jcu.edu.au">
+        <input type="password" id="password" placeholder="Password" value="admin123">
+        <button type="submit">Test Login</button>
+    </form>
+    
+    <button onclick="checkAuth()">Check Current Auth</button>
+    <button onclick="clearAuth()">Clear Auth</button>
+    
+    <div id="result" class="result">Results will appear here...</div>
+    
+    <script>
+        const resultDiv = document.getElementById('result');
+        
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const email = document.getElementById('email').value;
+            const password = document.getElementById('password').value;
+            
+            resultDiv.innerHTML = 'Testing login...';
+            
+            try {
+                const response = await fetch('/api/auth/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ email, password })
+                });
+                
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <h3>Login Response:</h3>
+                    <p>Status: ${response.status}</p>
+                    <p>Success: ${data.success}</p>
+                    <p>User: ${data.user ? data.user.email : 'None'}</p>
+                    <p>Role: ${data.user ? data.user.role : 'None'}</p>
+                    <p>Token: ${data.token ? 'Present' : 'None'}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+                
+                // Store token if successful
+                if (data.success && data.token) {
+                    localStorage.setItem('auth-token', data.token);
+                    localStorage.setItem('user-data', JSON.stringify(data.user));
+                    resultDiv.innerHTML += '<p><strong>Stored in localStorage</strong></p>';
+                }
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        });
+        
+        async function checkAuth() {
+            resultDiv.innerHTML = 'Checking auth...';
+            
+            try {
+                const token = localStorage.getItem('auth-token');
+                const userData = localStorage.getItem('user-data');
+                
+                const headers = { 'credentials': 'include' };
+                if (token) {
+                    headers['Authorization'] = `Bearer ${token}`;
+                }
+                
+                const response = await fetch('/api/auth/me', {
+                    headers,
+                    credentials: 'include'
+                });
+                
+                const data = await response.json();
+                
+                resultDiv.innerHTML = `
+                    <h3>Auth Check:</h3>
+                    <p>LocalStorage Token: ${token ? 'Present' : 'None'}</p>
+                    <p>LocalStorage User: ${userData ? 'Present' : 'None'}</p>
+                    <p>API Response Status: ${response.status}</p>
+                    <p>User: ${data.user ? data.user.email : 'None'}</p>
+                    <p>Role: ${data.user ? data.user.role : 'None'}</p>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                `;
+                
+            } catch (error) {
+                resultDiv.innerHTML = `<p>Error: ${error.message}</p>`;
+            }
+        }
+        
+        function clearAuth() {
+            localStorage.removeItem('auth-token');
+            localStorage.removeItem('user-data');
+            resultDiv.innerHTML = '<p>Auth data cleared from localStorage</p>';
+        }
+    </script>
+</body>
+</html>

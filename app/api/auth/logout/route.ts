@@ -2,15 +2,13 @@ import { NextRequest, NextResponse } from "next/server"
 
 export async function POST(request: NextRequest) {
   try {
-    // In this implementation, we're using client-side token storage
-    // so there's no server-side session to clear.
-    // This endpoint serves as a confirmation that logout was successful
-    // and could be extended to handle server-side session management if needed
+    const isAdminLogout = request.headers.get('X-Admin-Logout') === 'true'
     
     // Create response confirming logout
     const response = NextResponse.json({
       success: true,
-      message: "Logged out successfully"
+      message: "Logged out successfully",
+      isAdmin: isAdminLogout
     })
     
     // Clear the HTTP-only session cookie
@@ -21,6 +19,11 @@ export async function POST(request: NextRequest) {
       maxAge: 0, // Expire immediately
       path: '/'
     })
+    
+    // Add cache-control headers to prevent caching
+    response.headers.set('Cache-Control', 'no-cache, no-store, must-revalidate, private')
+    response.headers.set('Pragma', 'no-cache')
+    response.headers.set('Expires', '0')
     
     return response
   } catch (error) {
